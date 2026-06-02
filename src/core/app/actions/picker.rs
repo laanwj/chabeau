@@ -206,6 +206,14 @@ fn handle_picker_backspace(app: &mut App) {
                 }
             }
         }
+        Some(PickerMode::SessionLoad) => {
+            if let Some(state) = app.session_load_picker_state_mut() {
+                if !state.search_filter.is_empty() {
+                    state.search_filter.pop();
+                    app.filter_sessions();
+                }
+            }
+        }
         None => {}
     }
 }
@@ -253,6 +261,12 @@ fn handle_picker_type_char(app: &mut App, ch: char) {
             if let Some(state) = app.preset_picker_state_mut() {
                 state.search_filter.push(ch);
                 app.filter_presets();
+            }
+        }
+        Some(PickerMode::SessionLoad) => {
+            if let Some(state) = app.session_load_picker_state_mut() {
+                state.search_filter.push(ch);
+                app.filter_sessions();
             }
         }
         None => {}
@@ -361,6 +375,9 @@ fn handle_picker_escape(app: &mut App, ctx: AppActionContext) {
             app.close_picker();
         }
         Some(PickerMode::Preset) => {
+            app.close_picker();
+        }
+        Some(PickerMode::SessionLoad) => {
             app.close_picker();
         }
         None => {}
@@ -506,6 +523,18 @@ fn handle_picker_apply_selection(
         }
         Some(PickerMode::Preset) => {
             app.apply_selected_preset(persistent);
+            None
+        }
+        Some(PickerMode::SessionLoad) => {
+            let Some(id) = selected_picker_id(app) else {
+                app.close_picker();
+                return None;
+            };
+            match crate::commands::do_load_session(app, &id) {
+                Ok(()) => input::set_status_message(app, format!("Loaded session: {}", id), ctx),
+                Err(e) => input::set_status_message(app, format!("Load error: {}", e), ctx),
+            }
+            app.close_picker();
             None
         }
         None => None,

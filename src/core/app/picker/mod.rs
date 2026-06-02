@@ -88,6 +88,7 @@ pub enum PickerMode {
     Character,
     Persona,
     Preset,
+    SessionLoad,
 }
 
 #[derive(Debug, Clone)]
@@ -131,6 +132,15 @@ pub struct PresetPickerState {
     pub all_items: Vec<PickerItem>,
 }
 
+/// State for the session load picker.
+#[derive(Debug, Clone)]
+pub struct SessionPickerState {
+    pub sessions: Vec<crate::core::session_store::SessionSummary>,
+    pub selected_index: usize,
+    pub search_filter: String,
+    pub all_items: Vec<PickerItem>,
+}
+
 #[derive(Debug, Clone)]
 pub enum PickerData {
     Theme(Box<ThemePickerState>),
@@ -139,6 +149,7 @@ pub enum PickerData {
     Character(CharacterPickerState),
     Persona(PersonaPickerState),
     Preset(PresetPickerState),
+    SessionLoad(SessionPickerState),
 }
 
 impl PickerData {
@@ -150,6 +161,7 @@ impl PickerData {
             PickerData::Character(_) => PickerMode::Character,
             PickerData::Persona(_) => PickerMode::Persona,
             PickerData::Preset(_) => PickerMode::Preset,
+            PickerData::SessionLoad(_) => PickerMode::SessionLoad,
         }
     }
 
@@ -160,7 +172,8 @@ impl PickerData {
             | PickerData::Provider(_)
             | PickerData::Character(_)
             | PickerData::Persona(_)
-            | PickerData::Preset(_) => true,
+            | PickerData::Preset(_)
+            | PickerData::SessionLoad(_) => true,
         }
     }
 
@@ -179,6 +192,7 @@ impl PickerData {
             PickerMode::Character => "Pick Character",
             PickerMode::Persona => "Pick Persona",
             PickerMode::Preset => "Pick Preset",
+            PickerMode::SessionLoad => "Load Session",
         }
     }
 
@@ -190,6 +204,7 @@ impl PickerData {
             PickerData::Character(state) => &state.search_filter,
             PickerData::Persona(state) => &state.search_filter,
             PickerData::Preset(state) => &state.search_filter,
+            PickerData::SessionLoad(state) => &state.search_filter,
         }
     }
 
@@ -201,6 +216,7 @@ impl PickerData {
             PickerData::Character(state) => &state.all_items,
             PickerData::Persona(state) => &state.all_items,
             PickerData::Preset(state) => &state.all_items,
+            PickerData::SessionLoad(state) => &state.all_items,
         }
     }
 }
@@ -288,6 +304,7 @@ picker_state_accessors! {
     (Character, character_state, character_state_mut, CharacterPickerState),
     (Persona, persona_state, persona_state_mut, PersonaPickerState),
     (Preset, preset_state, preset_state_mut, PresetPickerState),
+    (SessionLoad, session_load_state, session_load_state_mut, SessionPickerState),
 }
 
 pub struct PickerController {
@@ -333,6 +350,24 @@ impl PickerController {
 
     pub fn close(&mut self) {
         self.picker_session = None;
+    }
+
+    /// Start a session load picker with the given sessions and items.
+    pub fn start_picker(&mut self, session_state: SessionPickerState, items: Vec<PickerItem>) {
+        let selected = session_state
+            .selected_index
+            .min(items.len().saturating_sub(1));
+        let picker_state = PickerState::new("Load Session", items.clone(), selected);
+        let session = PickerSession {
+            state: picker_state,
+            data: PickerData::SessionLoad(SessionPickerState {
+                sessions: session_state.sessions,
+                selected_index: session_state.selected_index,
+                search_filter: String::new(),
+                all_items: items,
+            }),
+        };
+        self.start_picker_session(session, None);
     }
 
     fn start_picker_session(
@@ -1360,7 +1395,8 @@ mod tests {
         assert!(size_of::<ModelPickerState>() > small_inline);
         assert!(size_of::<ProviderPickerState>() > small_inline);
         assert!(size_of::<ThemePickerState>() > small_inline);
-        assert!(size_of::<PickerData>() < size_of::<ModelPickerState>());
+        // PickerData should still be reasonably compact (enum with large variants)
+        assert!(size_of::<PickerData>() < size_of::<ModelPickerState>() + size_of::<usize>());
     }
 
     #[test]

@@ -493,4 +493,40 @@ impl App {
             .session_mut()
             .and_then(PickerSession::preset_state_mut)
     }
+
+    /// Get session load picker state accessor
+    pub fn session_load_picker_state(
+        &self,
+    ) -> Option<&crate::core::app::picker::SessionPickerState> {
+        self.picker
+            .session()
+            .and_then(PickerSession::session_load_state)
+    }
+
+    /// Get mutable session load picker state accessor
+    pub fn session_load_picker_state_mut(
+        &mut self,
+    ) -> Option<&mut crate::core::app::picker::SessionPickerState> {
+        self.picker
+            .session_mut()
+            .and_then(PickerSession::session_load_state_mut)
+    }
+
+    /// Filter sessions based on search term and update picker
+    pub fn filter_sessions(&mut self) {
+        if let Some(state) = self.session_load_picker_state_mut() {
+            let filter = state.search_filter.to_lowercase();
+            state.all_items.retain(|item| {
+                item.label.to_lowercase().contains(&filter)
+                    || item
+                        .metadata
+                        .as_ref()
+                        .map(|m| m.to_lowercase().contains(&filter))
+                        .unwrap_or(false)
+            });
+            if state.selected_index >= state.all_items.len() {
+                state.selected_index = state.all_items.len().saturating_sub(1);
+            }
+        }
+    }
 }
