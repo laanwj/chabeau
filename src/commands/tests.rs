@@ -1303,9 +1303,8 @@ fn validate_prompt_args_rejects_unknown_keys() {
 mod session_tests {
     use super::*;
     use crate::core::message::Message;
-    use crate::core::session_store::{list_sessions, save_session};
+    use crate::core::session_store::save_session;
     use crate::utils::test_utils::{create_test_app, create_test_message, TestEnvVarGuard};
-    use std::env;
 
     fn with_session_dir<F, R>(f: F) -> R
     where

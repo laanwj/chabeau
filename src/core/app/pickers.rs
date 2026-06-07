@@ -514,19 +514,6 @@ impl App {
 
     /// Filter sessions based on search term and update picker
     pub fn filter_sessions(&mut self) {
-        if let Some(state) = self.session_load_picker_state_mut() {
-            let filter = state.search_filter.to_lowercase();
-            state.all_items.retain(|item| {
-                item.label.to_lowercase().contains(&filter)
-                    || item
-                        .metadata
-                        .as_ref()
-                        .map(|m| m.to_lowercase().contains(&filter))
-                        .unwrap_or(false)
-            });
-            if state.selected_index >= state.all_items.len() {
-                state.selected_index = state.all_items.len().saturating_sub(1);
-            }
-        }
+        self.picker.filter_sessions();
     }
 }

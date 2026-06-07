@@ -613,6 +613,9 @@ fn input_title_base(app: &App, input_width: u16) -> Cow<'_, str> {
             Some(crate::core::app::PickerMode::Preset) => {
                 Cow::Borrowed("Select a preset (Esc=cancel • Ctrl+C=quit)")
             }
+            Some(crate::core::app::PickerMode::SessionLoad) => {
+                Cow::Borrowed("Select a session (Esc=cancel • Ctrl+C=quit)")
+            }
             _ => Cow::Borrowed("Make a selection (Esc=cancel • Ctrl+C=quit)"),
         }
     } else if let Some(prompt) = app.ui.tool_prompt() {
@@ -844,6 +847,10 @@ fn generate_picker_help_text(app: &App) -> String {
             .unwrap_or(""),
         Some(crate::core::app::PickerMode::Preset) => app
             .preset_picker_state()
+            .map(|state| state.search_filter.as_str())
+            .unwrap_or(""),
+        Some(crate::core::app::PickerMode::SessionLoad) => app
+            .session_load_picker_state()
             .map(|state| state.search_filter.as_str())
             .unwrap_or(""),
         _ => "",

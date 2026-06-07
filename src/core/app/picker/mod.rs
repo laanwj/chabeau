@@ -353,16 +353,18 @@ impl PickerController {
     }
 
     /// Start a session load picker with the given sessions and items.
-    pub fn start_picker(&mut self, session_state: SessionPickerState, items: Vec<PickerItem>) {
-        let selected = session_state
-            .selected_index
-            .min(items.len().saturating_sub(1));
+    pub fn open_session_picker(
+        &mut self,
+        sessions: Vec<crate::core::session_store::SessionSummary>,
+        items: Vec<PickerItem>,
+    ) {
+        let selected = 0;
         let picker_state = PickerState::new("Load Session", items.clone(), selected);
         let session = PickerSession {
             state: picker_state,
             data: PickerData::SessionLoad(SessionPickerState {
-                sessions: session_state.sessions,
-                selected_index: session_state.selected_index,
+                sessions,
+                selected_index: selected,
                 search_filter: String::new(),
                 all_items: items,
             }),
@@ -938,6 +940,10 @@ impl PickerController {
         self.filter_session_items(PickerMode::Preset, &[TURN_OFF_PRESET_ID]);
     }
 
+    pub fn filter_sessions(&mut self) {
+        self.filter_session_items(PickerMode::SessionLoad, &[]);
+    }
+
     pub fn open_character_picker(
         &mut self,
         cards: Vec<CharacterCard>,
@@ -1385,6 +1391,50 @@ mod tests {
         assert_eq!(session.state.items.len(), 2);
         assert_eq!(session.state.items[0].id, TURN_OFF_PRESET_ID);
         assert!(session.state.items.iter().any(|item| item.id == "focus"));
+    }
+
+    #[test]
+    fn test_filter_sessions_updates_rendered_items_from_source_list() {
+        let mut controller = PickerController::new();
+        let items = vec![
+            picker_item("sess-alpha", "Alpha Session", Some("openai | gpt-4")),
+            picker_item("sess-beta", "Beta Session", Some("anthropic | claude")),
+            picker_item("sess-gamma", "Gamma Session", Some("local | llama")),
+        ];
+
+        let mut picker_state = PickerState::new("Load Session", items.clone(), 2);
+        picker_state.sort_mode = SortMode::Name;
+
+        let mut session = PickerSession {
+            state: picker_state,
+            data: PickerData::SessionLoad(SessionPickerState {
+                sessions: Vec::new(),
+                selected_index: 2,
+                search_filter: "claude".to_string(),
+                all_items: items,
+            }),
+        };
+        session.state.sort_mode = session.default_sort_mode();
+
+        controller.picker_session = Some(session);
+        controller.filter_sessions();
+
+        let session = controller.session().expect("session load picker");
+        assert_eq!(session.state.selected, 0);
+        assert_eq!(session.state.items.len(), 1);
+        assert_eq!(session.state.items[0].id, "sess-beta");
+
+        let session = controller.session_mut().expect("session load picker");
+        session
+            .session_load_state_mut()
+            .expect("session load state")
+            .search_filter
+            .clear();
+
+        controller.filter_sessions();
+
+        let session = controller.session().expect("session load picker");
+        assert_eq!(session.state.items.len(), 3);
     }
 
     #[test]

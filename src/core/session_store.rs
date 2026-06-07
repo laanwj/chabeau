@@ -10,8 +10,7 @@
 use crate::api::ChatMessage;
 use crate::character::card::CharacterCard;
 use crate::core::app::session::{
-    McpInitState, ToolPayloadHistoryEntry, ToolPipelineState,
-    ToolResultStatus,
+    McpInitState, ToolPayloadHistoryEntry, ToolPipelineState, ToolResultStatus,
 };
 use crate::core::config::data::{Persona, Preset};
 use crate::core::message::Message;
@@ -354,7 +353,7 @@ fn session_dir() -> Result<PathBuf, SessionError> {
     } else {
         let proj_dirs = directories::BaseDirs::new().ok_or_else(|| SessionError::CreateDir {
             path: PathBuf::new(),
-            source: std::io::Error::new(std::io::ErrorKind::Other, "no user home directory"),
+            source: std::io::Error::other("no user home directory"),
         })?;
         proj_dirs.data_local_dir().join("chabeau").join("sessions")
     };
@@ -379,6 +378,7 @@ fn session_path(id: &str) -> Result<PathBuf, SessionError> {
 ///
 /// Captures the conversation transcript, tool results, and session context
 /// (provider, model, character, persona, preset). API keys are not included.
+#[allow(clippy::too_many_arguments)]
 pub fn save_session(
     session_id: &str,
     name: &str,
@@ -446,7 +446,7 @@ pub fn save_session(
         })?;
     temp.persist(&path).map_err(|source| SessionError::Write {
         path: path.clone(),
-        source: std::io::Error::new(std::io::ErrorKind::Other, source),
+        source: std::io::Error::other(source),
     })?;
 
     Ok(())
@@ -655,9 +655,18 @@ mod tests {
         assert_eq!(snapshot.provider, "test-provider");
         assert_eq!(snapshot.model, "test-model");
         assert_eq!(snapshot.base_url, "https://example.com/v1");
-        assert_eq!(snapshot.character.as_ref().map(|c| c.data.name.as_str()), Some("test-char"));
-        assert_eq!(snapshot.persona.as_ref().map(|p| p.id.as_str()), Some("test-persona"));
-        assert_eq!(snapshot.preset.as_ref().map(|p| p.id.as_str()), Some("test-preset"));
+        assert_eq!(
+            snapshot.character.as_ref().map(|c| c.data.name.as_str()),
+            Some("test-char")
+        );
+        assert_eq!(
+            snapshot.persona.as_ref().map(|p| p.id.as_str()),
+            Some("test-persona")
+        );
+        assert_eq!(
+            snapshot.preset.as_ref().map(|p| p.id.as_str()),
+            Some("test-preset")
+        );
         assert_eq!(snapshot.messages.len(), 3);
         assert_eq!(snapshot.messages[0].role, TranscriptRole::User);
         assert_eq!(snapshot.messages[0].content, "Hello, world!");
