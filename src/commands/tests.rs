@@ -403,7 +403,7 @@ fn theme_command_opens_picker() {
     let mut app = create_test_app();
     let res = process_input(&mut app, "/theme");
     assert!(matches!(res, CommandResult::OpenThemePicker));
-    assert!(app.picker_session().is_none());
+    assert!(app.active_picker().is_none());
 }
 
 #[test]
@@ -1541,7 +1541,7 @@ mod session_tests {
             let mut app = create_test_app();
             let result = process_input(&mut app, "/sessions");
             assert!(matches!(result, CommandResult::Continue));
-            assert!(app.picker_session().is_some());
+            assert!(app.active_picker().is_some());
         });
     }
 

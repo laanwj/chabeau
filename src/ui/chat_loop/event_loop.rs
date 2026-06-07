@@ -188,7 +188,7 @@ async fn route_keyboard_event(
 ) -> Result<KeyboardEventOutcome, Box<dyn Error>> {
     let context = app
         .read(|app| {
-            let picker_open = app.picker_session().is_some();
+            let picker_open = app.active_picker().is_some();
             KeyContext::from_ui_mode(&app.ui.mode, picker_open)
         })
         .await;

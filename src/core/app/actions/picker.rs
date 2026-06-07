@@ -206,11 +206,11 @@ fn handle_picker_backspace(app: &mut App) {
                 }
             }
         }
-        Some(PickerMode::SessionLoad) => {
-            if let Some(state) = app.session_load_picker_state_mut() {
+        Some(PickerMode::SavedSession) => {
+            if let Some(state) = app.saved_session_picker_state_mut() {
                 if !state.search_filter.is_empty() {
                     state.search_filter.pop();
-                    app.filter_sessions();
+                    app.filter_saved_sessions();
                 }
             }
         }
@@ -263,10 +263,10 @@ fn handle_picker_type_char(app: &mut App, ch: char) {
                 app.filter_presets();
             }
         }
-        Some(PickerMode::SessionLoad) => {
-            if let Some(state) = app.session_load_picker_state_mut() {
+        Some(PickerMode::SavedSession) => {
+            if let Some(state) = app.saved_session_picker_state_mut() {
                 state.search_filter.push(ch);
-                app.filter_sessions();
+                app.filter_saved_sessions();
             }
         }
         None => {}
@@ -275,7 +275,7 @@ fn handle_picker_type_char(app: &mut App, ch: char) {
 
 fn handle_picker_inspect(app: &mut App, ctx: AppActionContext) {
     let (title, metadata) = {
-        let Some(session) = app.picker_session() else {
+        let Some(session) = app.active_picker() else {
             return;
         };
         let state = &session.state;
@@ -320,7 +320,7 @@ fn handle_picker_inspect(app: &mut App, ctx: AppActionContext) {
 fn handle_picker_escape(app: &mut App, ctx: AppActionContext) {
     if app.inspect_state().is_some() {
         app.close_inspect();
-        if app.picker_session().is_some() {
+        if app.active_picker().is_some() {
             input::set_status_message(
                 app,
                 "Returned to picker (Ctrl+O=Inspect again)".to_string(),
@@ -377,7 +377,7 @@ fn handle_picker_escape(app: &mut App, ctx: AppActionContext) {
         Some(PickerMode::Preset) => {
             app.close_picker();
         }
-        Some(PickerMode::SessionLoad) => {
+        Some(PickerMode::SavedSession) => {
             app.close_picker();
         }
         None => {}
@@ -525,7 +525,7 @@ fn handle_picker_apply_selection(
             app.apply_selected_preset(persistent);
             None
         }
-        Some(PickerMode::SessionLoad) => {
+        Some(PickerMode::SavedSession) => {
             let Some(id) = selected_picker_id(app) else {
                 app.close_picker();
                 return None;
@@ -806,7 +806,7 @@ mod tests {
     use super::*;
     use crate::character::card::{CharacterCard, CharacterData};
     use crate::core::app::picker::{
-        CharacterPickerState, ModelPickerState, PickerData, PickerSession,
+        ActivePicker, CharacterPickerState, ModelPickerState, PickerData,
     };
     use crate::core::config::data::{Config, Persona, Preset};
     use crate::ui::picker::{PickerItem, PickerState};
@@ -835,7 +835,7 @@ mod tests {
         handle_picker_action(&mut app, PickerAction::PickerEscape, ctx);
 
         assert_eq!(app.ui.theme.background_color, original_color);
-        assert!(app.picker_session().is_none());
+        assert!(app.active_picker().is_none());
     }
 
     #[test]
@@ -868,7 +868,7 @@ mod tests {
 
         let picker_state = PickerState::new("Pick Model", items.clone(), 0);
 
-        app.picker.picker_session = Some(PickerSession {
+        app.picker.active_picker = Some(ActivePicker {
             state: picker_state,
             data: PickerData::Model(Box::new(ModelPickerState {
                 search_filter: String::new(),
@@ -887,7 +887,7 @@ mod tests {
         assert_eq!(app.session.base_url, "https://api.old");
         assert!(!app.picker.in_provider_model_transition);
         assert!(app.picker.provider_model_transition_state.is_none());
-        assert!(app.picker_session().is_none());
+        assert!(app.active_picker().is_none());
         assert_eq!(app.ui.status.as_deref(), Some("Selection cancelled"));
     }
 
@@ -905,7 +905,7 @@ mod tests {
         }];
 
         let picker_state = PickerState::new("Pick Character", items.clone(), 0);
-        app.picker.picker_session = Some(PickerSession {
+        app.picker.active_picker = Some(ActivePicker {
             state: picker_state,
             data: PickerData::Character(CharacterPickerState {
                 search_filter: String::new(),
@@ -913,13 +913,13 @@ mod tests {
             }),
         });
 
-        assert!(app.picker_session().is_some());
+        assert!(app.active_picker().is_some());
         handle_picker_action(
             &mut app,
             PickerAction::PickerApplySelection { persistent: false },
             ctx,
         );
-        assert!(app.picker_session().is_none());
+        assert!(app.active_picker().is_none());
     }
 
     #[test]
@@ -944,7 +944,7 @@ mod tests {
         ];
 
         let picker_state = PickerState::new("Pick Character", items.clone(), 0);
-        app.picker.picker_session = Some(PickerSession {
+        app.picker.active_picker = Some(ActivePicker {
             state: picker_state,
             data: PickerData::Character(CharacterPickerState {
                 search_filter: String::new(),

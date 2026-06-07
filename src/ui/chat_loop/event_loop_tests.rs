@@ -133,7 +133,7 @@ async fn session_picker_character_keys_do_not_fall_through_to_input() {
     app.update(|app| {
         app.ui.set_input_text(String::new());
         app.ui.focus_input();
-        app.picker.open_session_picker(
+        app.picker.open_saved_session_picker(
             Vec::new(),
             vec![PickerItem {
                 id: "sess-alpha".to_string(),
@@ -165,7 +165,7 @@ async fn session_picker_character_keys_do_not_fall_through_to_input() {
         .read(|app| {
             (
                 app.ui.get_input_text().to_string(),
-                app.picker_session().is_some(),
+                app.active_picker().is_some(),
             )
         })
         .await;

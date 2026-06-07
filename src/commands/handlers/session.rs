@@ -195,5 +195,5 @@ fn show_session_picker(app: &mut App, sessions: Vec<SessionSummary>) {
         })
         .collect();
 
-    app.picker.open_session_picker(sessions, items);
+    app.picker.open_saved_session_picker(sessions, items);
 }
