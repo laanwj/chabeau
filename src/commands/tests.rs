@@ -1302,9 +1302,27 @@ fn validate_prompt_args_rejects_unknown_keys() {
 
 mod session_tests {
     use super::*;
+    use crate::core::config::data::{Config, CustomProvider};
     use crate::core::message::Message;
     use crate::core::session_store::save_session;
-    use crate::utils::test_utils::{create_test_app, create_test_message, TestEnvVarGuard};
+    use crate::utils::test_utils::{
+        create_test_app, create_test_message, with_test_config_env, TestEnvVarGuard,
+    };
+
+    struct TestAuthTokenGuard;
+
+    impl TestAuthTokenGuard {
+        fn new() -> Self {
+            crate::auth::clear_test_tokens();
+            Self
+        }
+    }
+
+    impl Drop for TestAuthTokenGuard {
+        fn drop(&mut self) {
+            crate::auth::clear_test_tokens();
+        }
+    }
 
     fn with_session_dir<F, R>(f: F) -> R
     where
@@ -1313,16 +1331,23 @@ mod session_tests {
         let temp_dir = tempfile::tempdir().expect("tempdir");
         let mut guard = TestEnvVarGuard::new();
         guard.set_var("CHABEAU_DATA_DIR", temp_dir.path());
+        let _auth_guard = TestAuthTokenGuard::new();
         f(temp_dir.path())
     }
 
-    fn save_test_session(session_id: &str, name: &str) {
-        let _ = save_session(
+    fn save_session_fixture(
+        session_id: &str,
+        name: &str,
+        provider: &str,
+        model: &str,
+        base_url: &str,
+    ) {
+        save_session(
             session_id,
             name,
-            "test-provider",
-            "test-model",
-            "https://example.com/v1",
+            provider,
+            model,
+            base_url,
             None,
             None,
             None,
@@ -1334,7 +1359,77 @@ mod session_tests {
             "",
             false,
             false,
+        )
+        .expect("save session fixture");
+    }
+
+    fn save_openai_session(session_id: &str, name: &str) {
+        crate::auth::set_test_token("openai", "test-openai-key");
+        save_session_fixture(
+            session_id,
+            name,
+            "openai",
+            "test-model",
+            "https://api.openai.com/v1",
         );
+    }
+
+    fn assert_loaded_context(
+        app: &crate::core::app::App,
+        api_key: &str,
+        provider: &str,
+        provider_display: &str,
+        base_url: &str,
+        model: &str,
+    ) {
+        assert_eq!(app.session.api_key, api_key);
+        assert_eq!(app.session.provider_name, provider);
+        assert_eq!(app.session.provider_display_name, provider_display);
+        assert_eq!(app.session.base_url, base_url);
+        assert_eq!(app.session.model, model);
+    }
+
+    fn assert_status_contains(app: &crate::core::app::App, expected: &str) {
+        assert!(app.ui.status.as_deref().unwrap_or("").contains(expected));
+    }
+
+    fn configure_custom_provider(id: &str, display_name: &str, base_url: &str) {
+        Config::mutate(|config| {
+            config.add_custom_provider(CustomProvider::new(
+                id.to_string(),
+                display_name.to_string(),
+                base_url.to_string(),
+                None,
+            ));
+            Ok(())
+        })
+        .expect("configure custom provider");
+    }
+
+    fn save_test_session(session_id: &str, name: &str) {
+        save_openai_session(session_id, name);
+    }
+
+    fn save_settings_session() {
+        save_session(
+            "sess-settings",
+            "Settings Test",
+            "openai",
+            "mod",
+            "https://api.openai.com/v1",
+            None,
+            None,
+            None,
+            &[],
+            &[],
+            &[],
+            &crate::core::app::session::McpInitState::default(),
+            "custom refine instructions",
+            "custom refine prefix",
+            true,
+            false,
+        )
+        .expect("save settings session");
     }
 
     #[test]
@@ -1408,6 +1503,9 @@ mod session_tests {
         with_session_dir(|_| {
             let mut app = create_test_app();
             app.session.session_id = "sess-load-msgs".to_string();
+            app.session.provider_name = "openai".to_string();
+            app.session.api_key = "message-openai-key".to_string();
+            app.session.base_url = "https://api.openai.com/v1".to_string();
             app.ui
                 .messages
                 .push_back(create_test_message("user", "Before save"));
@@ -1416,6 +1514,7 @@ mod session_tests {
                 .push_back(create_test_message("assistant", "Response"));
 
             process_input(&mut app, "/save LoadMsgsTest");
+            crate::auth::set_test_token("openai", "message-openai-key");
 
             let mut app2 = create_test_app();
             app2.session.session_id = "new-session".to_string();
@@ -1437,37 +1536,290 @@ mod session_tests {
             let result = super::handlers::session::do_load_session(&mut app, "sess-ctx");
             assert!(result.is_ok());
             assert_eq!(app.session.session_id, "sess-ctx");
-            assert_eq!(app.session.provider_name, "test-provider");
-            assert_eq!(app.session.model, "test-model");
-            assert_eq!(app.session.base_url, "https://example.com/v1");
+            assert_loaded_context(
+                &app,
+                "test-openai-key",
+                "openai",
+                "OpenAI",
+                "https://api.openai.com/v1",
+                "test-model",
+            );
+        });
+    }
+
+    #[test]
+    fn load_command_by_id_resolves_provider_credentials() {
+        with_test_config_env(|_| {
+            with_session_dir(|_| {
+                crate::auth::set_test_token("openai", "loaded-openai-key");
+
+                save_session_fixture(
+                    "sess-auth",
+                    "Auth Test",
+                    "openai",
+                    "gpt-4o",
+                    "https://api.openai.com/v1",
+                );
+
+                let mut app = create_test_app();
+                app.session.api_key = "stale-provider-key".to_string();
+                app.session.provider_display_name = "Stale Provider".to_string();
+
+                let result = super::handlers::session::do_load_session(&mut app, "sess-auth");
+
+                assert!(result.is_ok());
+                assert_loaded_context(
+                    &app,
+                    "loaded-openai-key",
+                    "openai",
+                    "OpenAI",
+                    "https://api.openai.com/v1",
+                    "gpt-4o",
+                );
+            });
+        });
+    }
+
+    #[test]
+    fn load_command_by_id_preserves_snapshot_base_url_for_configured_provider() {
+        with_test_config_env(|_| {
+            with_session_dir(|_| {
+                configure_custom_provider(
+                    "snapshot-provider",
+                    "Snapshot Provider",
+                    "https://current.example/v1",
+                );
+                crate::auth::set_test_token("snapshot-provider", "snapshot-provider-key");
+
+                save_session_fixture(
+                    "sess-snapshot-base",
+                    "Snapshot Base Test",
+                    "snapshot-provider",
+                    "custom-model",
+                    "https://saved.example/v1",
+                );
+
+                let mut app = create_test_app();
+                let result =
+                    super::handlers::session::do_load_session(&mut app, "sess-snapshot-base");
+
+                assert!(result.is_ok(), "load failed: {result:?}");
+                assert_loaded_context(
+                    &app,
+                    "snapshot-provider-key",
+                    "snapshot-provider",
+                    "Snapshot Provider",
+                    "https://saved.example/v1",
+                    "custom-model",
+                );
+            });
+        });
+    }
+
+    #[test]
+    fn load_command_by_id_resolves_env_openai_compatible_credentials() {
+        with_test_config_env(|_| {
+            with_session_dir(|_| {
+                let mut env_guard = TestEnvVarGuard::new();
+                env_guard.set_var("OPENAI_API_KEY", "env-openai-compatible-key");
+                env_guard.remove_var("OPENAI_BASE_URL");
+
+                save_session_fixture(
+                    "sess-env-compatible",
+                    "Env Compatible Test",
+                    "openai-compatible",
+                    "custom-model",
+                    "https://compatible.example/v1",
+                );
+
+                let mut app = create_test_app();
+                app.session.api_key = "stale-provider-key".to_string();
+                app.session.base_url = "https://stale.example/v1".to_string();
+                app.session.provider_display_name = "Stale Provider".to_string();
+
+                let result =
+                    super::handlers::session::do_load_session(&mut app, "sess-env-compatible");
+
+                assert!(result.is_ok(), "load failed: {result:?}");
+                assert_loaded_context(
+                    &app,
+                    "env-openai-compatible-key",
+                    "openai-compatible",
+                    "OpenAI-compatible",
+                    "https://compatible.example/v1",
+                    "custom-model",
+                );
+                assert_status_contains(&app, "using OPENAI_API_KEY fallback");
+            });
+        });
+    }
+
+    #[test]
+    fn load_command_by_id_resolves_env_openai_credentials() {
+        with_test_config_env(|_| {
+            with_session_dir(|_| {
+                let mut env_guard = TestEnvVarGuard::new();
+                env_guard.set_var("OPENAI_API_KEY", "env-openai-key");
+                env_guard.remove_var("OPENAI_BASE_URL");
+
+                save_session_fixture(
+                    "sess-env-openai",
+                    "Env OpenAI Test",
+                    "openai",
+                    "gpt-4o",
+                    "https://api.openai.com/v1",
+                );
+
+                let mut app = create_test_app();
+                app.session.api_key = "stale-provider-key".to_string();
+                app.session.base_url = "https://stale.example/v1".to_string();
+                app.session.provider_display_name = "Stale Provider".to_string();
+
+                let result = super::handlers::session::do_load_session(&mut app, "sess-env-openai");
+
+                assert!(result.is_ok(), "load failed: {result:?}");
+                assert_loaded_context(
+                    &app,
+                    "env-openai-key",
+                    "openai",
+                    "OpenAI",
+                    "https://api.openai.com/v1",
+                    "gpt-4o",
+                );
+                assert_status_contains(&app, "using OPENAI_API_KEY fallback");
+            });
+        });
+    }
+
+    #[test]
+    fn load_command_by_id_warns_when_using_current_credentials_fallback() {
+        with_test_config_env(|_| {
+            with_session_dir(|_| {
+                save_session_fixture(
+                    "sess-current-fallback",
+                    "Current Fallback Test",
+                    "runtime-provider",
+                    "runtime-model",
+                    "https://saved-runtime.example/v1",
+                );
+
+                let mut app = create_test_app();
+                app.session.provider_name = "runtime-provider".to_string();
+                app.session.provider_display_name = "Runtime Provider".to_string();
+                app.session.api_key = "runtime-key".to_string();
+                app.session.base_url = "https://current-runtime.example/v1".to_string();
+
+                let result =
+                    super::handlers::session::do_load_session(&mut app, "sess-current-fallback");
+
+                assert!(result.is_ok(), "load failed: {result:?}");
+                assert_loaded_context(
+                    &app,
+                    "runtime-key",
+                    "runtime-provider",
+                    "Runtime Provider",
+                    "https://saved-runtime.example/v1",
+                    "runtime-model",
+                );
+                assert_status_contains(&app, "using current credentials");
+            });
+        });
+    }
+
+    #[test]
+    fn load_command_by_id_falls_back_to_current_provider_when_saved_provider_unavailable() {
+        with_test_config_env(|_| {
+            with_session_dir(|_| {
+                save_session_fixture(
+                    "sess-different-provider-fallback",
+                    "Different Provider Fallback Test",
+                    "missing-provider",
+                    "saved-model",
+                    "https://saved-missing.example/v1",
+                );
+
+                let mut app = create_test_app();
+                app.session.provider_name = "current-provider".to_string();
+                app.session.provider_display_name = "Current Provider".to_string();
+                app.session.api_key = "current-key".to_string();
+                app.session.base_url = "https://current.example/v1".to_string();
+                app.session.model = "current-model".to_string();
+
+                let result = super::handlers::session::do_load_session(
+                    &mut app,
+                    "sess-different-provider-fallback",
+                );
+
+                assert!(result.is_ok(), "load failed: {result:?}");
+                assert_loaded_context(
+                    &app,
+                    "current-key",
+                    "current-provider",
+                    "Current Provider",
+                    "https://current.example/v1",
+                    "current-model",
+                );
+                assert_status_contains(
+                    &app,
+                    "provider 'missing-provider' unavailable; using current provider 'current-provider'",
+                );
+            });
+        });
+    }
+
+    #[test]
+    fn load_command_by_id_rejects_wrong_env_provider_fallback() {
+        with_test_config_env(|_| {
+            with_session_dir(|_| {
+                let mut env_guard = TestEnvVarGuard::new();
+                env_guard.set_var("OPENAI_API_KEY", "env-openai-key");
+                env_guard.remove_var("OPENAI_BASE_URL");
+                crate::auth::set_test_recoverable_keyring_error("anthropic");
+
+                save_session_fixture(
+                    "sess-wrong-env-fallback",
+                    "Wrong Env Fallback Test",
+                    "anthropic",
+                    "claude-sonnet-4-20250514",
+                    "https://api.anthropic.com",
+                );
+
+                let mut app = create_test_app();
+                app.session.provider_name = "current-provider".to_string();
+                app.session.provider_display_name = "Current Provider".to_string();
+                app.session.api_key = "current-key".to_string();
+                app.session.base_url = "https://current.example/v1".to_string();
+                app.session.model = "current-model".to_string();
+
+                let result =
+                    super::handlers::session::do_load_session(&mut app, "sess-wrong-env-fallback");
+
+                assert!(result.is_ok(), "load failed: {result:?}");
+                assert_loaded_context(
+                    &app,
+                    "current-key",
+                    "current-provider",
+                    "Current Provider",
+                    "https://current.example/v1",
+                    "current-model",
+                );
+                assert_status_contains(
+                    &app,
+                    "provider 'anthropic' unavailable; using current provider 'current-provider'",
+                );
+            });
         });
     }
 
     #[test]
     fn load_command_by_id_restores_ui_settings() {
         with_session_dir(|_| {
-            let _ = save_session(
-                "sess-settings",
-                "Settings Test",
-                "prov",
-                "mod",
-                "https://example.com/v1",
-                None,
-                None,
-                None,
-                &[],
-                &[],
-                &[],
-                &crate::core::app::session::McpInitState::default(),
-                "custom refine instructions",
-                "custom refine prefix",
-                true,
-                false,
-            );
+            save_settings_session();
 
             let mut app = create_test_app();
             app.ui.markdown_enabled = false;
             app.ui.syntax_enabled = true;
+            crate::auth::set_test_token("openai", "test-openai-key");
 
             let result = super::handlers::session::do_load_session(&mut app, "sess-settings");
             assert!(result.is_ok());
@@ -1601,6 +1953,7 @@ mod session_tests {
             let mut app = create_test_app();
             app.session.session_id = "sess-integration".to_string();
             app.session.provider_name = "openai".to_string();
+            app.session.api_key = "integration-openai-key".to_string();
             app.session.model = "gpt-4".to_string();
             app.session.base_url = "https://api.openai.com/v1".to_string();
             app.ui.markdown_enabled = true;
@@ -1615,6 +1968,7 @@ mod session_tests {
             ));
 
             process_input(&mut app, "/save IntegrationTest");
+            crate::auth::set_test_token("openai", "integration-openai-key");
 
             let mut app2 = create_test_app();
             app2.session.session_id = "fresh-session".to_string();

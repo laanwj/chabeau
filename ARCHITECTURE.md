@@ -39,6 +39,12 @@ builds `App`, and chooses whether to launch provider/model pickers based on the
 current config state. If `--session <id>` is provided, setup restores the saved
 session after the app is built.
 
+Saved-session restore uses the snapshot for transcript-facing context
+(provider, model, base URL, tools, character/persona/preset, and UI settings)
+but resolves credentials at load time. If the saved provider cannot be restored,
+the session still loads and continues with the current startup provider while
+showing a status warning.
+
 ## Core application state
 The central runtime object is `App` (`src/core/app/mod.rs`), with session details
 kept in `SessionContext` (`src/core/app/session.rs`).
