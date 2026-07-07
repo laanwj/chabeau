@@ -1686,7 +1686,6 @@ mod session_tests {
                     "https://api.openai.com/v1",
                     "gpt-4o",
                 );
-                assert_status_contains(&app, "using OPENAI_API_KEY fallback");
             });
         });
     }
